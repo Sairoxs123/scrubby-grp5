@@ -1,0 +1,1 @@
+python calibrate.py --image_dir ./leftcamera --prefix Im_L_ --image_format png --square_size 0.03 --width 11 --height 7 --save_file calibration_data.yml
