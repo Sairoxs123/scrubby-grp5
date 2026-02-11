@@ -1,97 +1,97 @@
 import cv2
 import numpy as np
-import cv2.aruco as aruco
 
-def load_calibration(yaml_file):
-    """Loads camera matrix and distortion coefficients from an OpenCV YAML file."""
-    fs = cv2.FileStorage(yaml_file, cv2.FILE_STORAGE_READ)
-    if not fs.isOpened():
-        raise FileNotFoundError(f"Unable to open calibration file: {yaml_file}")
+def extract_whiteboard(frame):
+    # 1. Load the ArUco dictionary (The image you uploaded uses 4x4 markers)
+    aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
+    parameters = cv2.aruco.DetectorParameters()
+    detector = cv2.aruco.ArucoDetector(aruco_dict, parameters)
 
-    mtx_node = fs.getNode("K")
-    dist_node = fs.getNode("D")
-    if mtx_node.empty() or dist_node.empty():
-        fs.release()
-        raise ValueError("Calibration file missing 'K' or 'D' nodes.")
+    # 2. Detect the markers in the frame
+    corners, ids, rejected = detector.detectMarkers(frame)
 
-    mtx = mtx_node.mat()
-    dist = dist_node.mat()
-    fs.release()
-    return mtx, dist
+    # We need all 4 markers (IDs 0, 1, 2, 3) to create the whiteboard
+    if ids is not None and len(ids) >= 4:
+        # Flatten the IDs list
+        ids = ids.flatten()
 
-def run_live_scrubby(marker_size_cm=20.0):
-    # 1. Load Calibration and Setup ArUco
-    try:
-        mtx, dist = load_calibration("../camera calibration/calibration_data.yml")
-        print("Calibration data loaded successfully.")
-    except Exception as e:
-        print(f"Error loading YAML: {e}")
-        return
+        # Create a dictionary to map ID -> Marker Center Point
+        marker_centers = {}
 
-    cap = cv2.VideoCapture(0) # Use 0 for default webcam
-    aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
-    parameters = aruco.DetectorParameters()
+        for i, marker_id in enumerate(ids):
+            # 'corners' is a list of lists. corners[i][0] gives the 4 points of the marker.
+            # We calculate the mean (average) to find the center of the marker.
+            marker_corners = corners[i][0]
+            center_x = np.mean(marker_corners[:, 0])
+            center_y = np.mean(marker_corners[:, 1])
+            marker_centers[marker_id] = (center_x, center_y)
 
-    print("Starting live feed. Press 'q' to quit.")
+        # Check if we found all specific IDs needed for the corners
+        required_ids = [0, 1, 2, 3] # TL, TR, BL, BR
+        if all(req_id in marker_centers for req_id in required_ids):
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+            # 3. Define the Source Points (Where the markers are in the camera frame)
+            # Order: Top-Left, Top-Right, Bottom-Left, Bottom-Right
+            src_pts = np.array([
+                marker_centers[0], # Top-Left
+                marker_centers[3], # Top-Right
+                marker_centers[1], # Bottom-Left
+                marker_centers[2]  # Bottom-Right
+            ], dtype="float32")
 
-        # Undistort the frame using your calibration data
-        h, w = frame.shape[:2]
-        new_mtx, roi = cv2.getOptimalNewCameraMatrix(mtx, dist, (w, h), 1, (w, h))
-        undistorted_frame = cv2.undistort(frame, mtx, dist, None, new_mtx)
+            # 4. Define Destination Points (The flat 'whiteboard' view)
+            # We pick a fixed resolution for the output, e.g., 1000x700 pixels
+            output_width = 1000
+            output_height = 700
 
-        gray = cv2.cvtColor(undistorted_frame, cv2.COLOR_BGR2GRAY)
-        corners, ids, _ = aruco.detectMarkers(gray, aruco_dict, parameters=parameters)
+            dst_pts = np.array([
+                [0, 0],                         # Top-Left
+                [output_width, 0],              # Top-Right
+                [0, output_height],             # Bottom-Left
+                [output_width, output_height]   # Bottom-Right
+            ], dtype="float32")
 
-        if ids is not None and len(ids) >= 4:
-            marker_corners = {ids[i][0]: corners[i][0] for i in range(len(ids))}
+            # 5. Perform the Perspective Transform
+            # This matrix maps the src_pts to the dst_pts
+            matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
 
-            # Use IDs based on your sheet: 0(TL), 1(TR), 3(BR), 2(BL)
-            required_ids = [0, 1, 2, 3]
-            if all(mid in marker_corners for mid in required_ids):
+            # Warp the image
+            warped_image = cv2.warpPerspective(frame, matrix, (output_width, output_height))
 
-                # Source Points (Outer Corners)
-                src_pts = np.float32([
-                    marker_corners[0][0], # TL
-                    marker_corners[1][1], # TR
-                    marker_corners[3][2], # BR
-                    marker_corners[2][3]  # BL
-                ])
+            return warped_image, src_pts
 
-                # Calculate Scale and Dimensions
-                marker_px_w = np.linalg.norm(marker_corners[0][0] - marker_corners[0][1])
-                ratio = marker_size_cm / marker_px_w
+    # Return None if we can't find the board
+    return None, None
 
-                real_w = np.linalg.norm(src_pts[0] - src_pts[1]) * ratio
-                real_h = np.linalg.norm(src_pts[0] - src_pts[3]) * ratio
+# --- Main Execution Loop ---
+cap = cv2.VideoCapture(0) # Open default webcam
 
-                # Dynamic Aspect Ratio for Warped Window
-                target_w = 800
-                target_h = int(real_h * (target_w / real_w))
+while True:
+    ret, frame = cap.read()
+    if not ret: break
 
-                dst_pts = np.float32([[0, 0], [target_w, 0], [target_w, target_h], [0, target_h]])
+    # Try to extract the whiteboard
+    whiteboard_view, corners_used = extract_whiteboard(frame)
 
-                # Transformation
-                M = cv2.getPerspectiveTransform(src_pts, dst_pts)
-                warped = cv2.warpPerspective(undistorted_frame, M, (target_w, target_h))
+    # Visualization: Draw the detected area on the original frame for debugging
+    if corners_used is not None:
+        # Convert to integer for drawing
+        pts = corners_used.astype(int)
+        # Draw lines connecting the markers (0->1, 1->3, 3->2, 2->0 to form a box)
+        # Note: Our order in src_pts was TL(0), TR(1), BL(2), BR(3)
+        cv2.line(frame, tuple(pts[0]), tuple(pts[1]), (0, 255, 0), 2) # Top
+        cv2.line(frame, tuple(pts[1]), tuple(pts[3]), (0, 255, 0), 2) # Right
+        cv2.line(frame, tuple(pts[3]), tuple(pts[2]), (0, 255, 0), 2) # Bottom
+        cv2.line(frame, tuple(pts[2]), tuple(pts[0]), (0, 255, 0), 2) # Left
 
-                # Display dimensions on the original frame
-                cv2.putText(undistorted_frame, f"Board: {real_w:.1f}x{real_h:.1f} cm",
-                            (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    cv2.imshow("Original Camera", frame)
 
-                cv2.imshow("Warped Whiteboard (ROI)", warped)
+    if whiteboard_view is not None:
+        cv2.imshow("Corrected Whiteboard ROI", whiteboard_view)
 
-        cv2.imshow("Original Feed (Undistorted)", undistorted_frame)
+    # Press 'q' to quit
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
 
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-    cap.release()
-    cv2.destroyAllWindows()
-
-if __name__ == "__main__":
-    run_live_scrubby(marker_size_cm=20.0)
+cap.release()
+cv2.destroyAllWindows()
