@@ -38,21 +38,49 @@ while True:
         # Use 0.05 if your phone marker is roughly 5cm wide
         obj_points = np.array([[0, 0, 0], [0.05, 0, 0], [0.05, 0.05, 0], [0, 0.05, 0]], dtype=np.float32)
 
+        marker_positions = []
+        marker_ids = []
+
         for i, corner in enumerate(corners):
             _, rvec, tvec = cv2.solvePnP(obj_points, corner, mtx, dist)
             # Draw the XYZ Axes (Red, Green, Blue)
             cv2.drawFrameAxes(frame, mtx, dist, rvec, tvec, 0.03)
             # Save marker ID and coordinates to current_markers dictionary
             current_markers[ids[i][0]] = tvec.ravel()
-            if 12 in current_markers and 0 in current_markers:
-                pos_origin = current_markers[12]  # Marker 12 is the origin
-                pos_point = current_markers[0]     # Marker 0 is the 2nd point
+            marker_positions.append(tvec.ravel())
+            marker_ids.append(ids[i][0])
+            if 1 in current_markers and 3 in current_markers:
+                pos_origin = current_markers[1]  # Marker 12 is the origin
+                pos_point = current_markers[3]     # Marker 0 is the 2nd point
                 relative_pos = pos_point - pos_origin
                 print(f"Relative Position of Marker 0 to Marker 12: {relative_pos}")
 
                 distance = np.linalg.norm(relative_pos)
                 print(f"Distance from Marker 12 to Marker 0: {distance*100:.2f} cm")
             #print(f"Detected ID: {ids[i][0]} at {tvec.ravel()}")
+
+        if len(marker_positions) >= 4:
+            points = np.array(marker_positions[:4], dtype=np.float32)
+            distances = []
+            for a in range(4):
+                for b in range(a + 1, 4):
+                    distances.append(np.linalg.norm(points[a] - points[b]))
+
+            distances.sort()
+            side_lengths = distances[:4]
+            width = float(np.mean(side_lengths[:2]))
+            height = float(np.mean(side_lengths[2:]))
+
+            cv2.putText(
+                frame,
+                f"Width: {width*100:.2f} cm  Height: {height*100:.2f} cm",
+                (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 255, 0),
+                2,
+                cv2.LINE_AA,
+            )
 
     # Draw rejected candidates in PINK (to see if glare is the issue)
     cv2.aruco.drawDetectedMarkers(frame, rejected, borderColor=(255, 0, 255))
