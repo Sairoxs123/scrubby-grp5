@@ -1,1 +1,6 @@
 venv
+runs
+Scrubby-1
+*.pt
+captures
+.env
