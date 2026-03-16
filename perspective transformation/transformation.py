@@ -2,95 +2,120 @@ import cv2
 import numpy as np
 import os
 from datetime import datetime
-from ultralytics import YOLO
-
-# --- Configuration ---
-model_path = r'C:\Users\Sai20\Desktop\Sai Teja\Scrubby\runs\detect\train5\weights\best.pt'
-model = YOLO(model_path)
-MARKER_SIZE_CM = 10.0  # Physical size of your markers
 
 def extract_whiteboard(frame):
-    # Using the ArUco detector setup from your teammate's code
+    # 1. Load the ArUco dictionary (The image you uploaded uses 4x4 markers)
     aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
     parameters = cv2.aruco.DetectorParameters()
     detector = cv2.aruco.ArucoDetector(aruco_dict, parameters)
 
-    corners, ids, _ = detector.detectMarkers(frame)
+    # 2. Detect the markers in the frame
+    corners, ids, rejected = detector.detectMarkers(frame)
 
+    # We need all 4 markers (IDs 0, 1, 2, 3) to create the whiteboard
     if ids is not None and len(ids) >= 4:
+        # Flatten the IDs list
         ids = ids.flatten()
+
+        # Create a dictionary to map ID -> Marker Center Point
         marker_centers = {}
-        marker_pixel_widths = []
 
         for i, marker_id in enumerate(ids):
-            m_corners = corners[i][0]
-            # Center calculation
-            center = np.mean(m_corners, axis=0)
-            marker_centers[marker_id] = center
-            # Width for scaling: Distance between two corners of one marker
-            pixel_w = np.linalg.norm(m_corners[0] - m_corners[1])
-            marker_pixel_widths.append(pixel_w)
+            # 'corners' is a list of lists. corners[i][0] gives the 4 points of the marker.
+            # We calculate the mean (average) to find the center of the marker.
+            marker_corners = corners[i][0]
+            center_x = np.mean(marker_corners[:, 0])
+            center_y = np.mean(marker_corners[:, 1])
+            marker_centers[marker_id] = (center_x, center_y)
 
-        required_ids = [0, 1, 2, 3] # TL, TR, BL, BR mapping
+        # Check if we found all specific IDs needed for the corners
+        required_ids = [0, 1, 2, 3] # TL, TR, BL, BR
         if all(req_id in marker_centers for req_id in required_ids):
-            # Order from teammate's code: TL(0), TR(3), BL(1), BR(2)
+
+            # 3. Define the Source Points (Where the markers are in the camera frame)
+            # Order: Top-Left, Top-Right, Bottom-Left, Bottom-Right
             src_pts = np.array([
-                marker_centers[0], marker_centers[3],
-                marker_centers[1], marker_centers[2]
+                marker_centers[0], # Top-Left
+                marker_centers[3], # Top-Right
+                marker_centers[1], # Bottom-Left
+                marker_centers[2]  # Bottom-Right
             ], dtype="float32")
 
-            output_width, output_height = 1000, 700
-            dst_pts = np.array([[0, 0], [output_width, 0], [0, output_height], [output_width, output_height]], dtype="float32")
+            # 4. Define Destination Points (The flat 'whiteboard' view)
+            # We pick a fixed resolution for the output, e.g., 1000x700 pixels
+            output_width = 1000
+            output_height = 700
 
+            dst_pts = np.array([
+                [0, 0],                         # Top-Left
+                [output_width, 0],              # Top-Right
+                [0, output_height],             # Bottom-Left
+                [output_width, output_height]   # Bottom-Right
+            ], dtype="float32")
+
+            # 5. Perform the Perspective Transform
+            # This matrix maps the src_pts to the dst_pts
             matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
+
+            # Warp the image
             warped_image = cv2.warpPerspective(frame, matrix, (output_width, output_height))
 
-            # Scale Factor: 10cm / [Avg Pixels of marker]
-            avg_px_w = np.mean(marker_pixel_widths)
-            cm_per_pixel = MARKER_SIZE_CM / avg_px_w
+            return warped_image, src_pts
 
-            return warped_image, src_pts, cm_per_pixel
-
-    return None, None, None
+    # Return None if we can't find the board
+    return None, None
 
 # --- Main Execution Loop ---
-cap = cv2.VideoCapture(0)
+output_dir = os.path.join(os.path.dirname(__file__), "captures")
+os.makedirs(output_dir, exist_ok=True)
+image_index = 0
+cap = cv2.VideoCapture(0) # Open default webcam
+last_whiteboard_view = None
+
 while True:
     ret, frame = cap.read()
     if not ret: break
 
-    whiteboard_view, corners_used, ratio = extract_whiteboard(frame)
-
+    # Try to extract the whiteboard
+    whiteboard_view, corners_used = extract_whiteboard(frame)
     if whiteboard_view is not None:
-        # Run YOLO inference on the ROI
-        results = model.predict(whiteboard_view, conf=0.5, stream=True)
+        last_whiteboard_view = whiteboard_view
 
-        for r in results:
-            for box in r.boxes:
-                # Get box coordinates
-                # xyxy = [x1, y1, x2, y2]
-                b = box.xyxy[0].cpu().numpy().astype(int)
-                # xywh = [center_x, center_y, width, height]
-                c = box.xywh[0].cpu().numpy()
+    # Visualization: Draw the detected area on the original frame for debugging
+    if corners_used is not None:
+        # Convert to integer for drawing
+        pts = corners_used.astype(int)
+        # Draw lines connecting the markers (0->1, 1->3, 3->2, 2->0 to form a box)
+        # Note: Our order in src_pts was TL(0), TR(1), BL(2), BR(3)
+        cv2.line(frame, tuple(pts[0]), tuple(pts[1]), (0, 255, 0), 2) # Top
+        cv2.line(frame, tuple(pts[1]), tuple(pts[3]), (0, 255, 0), 2) # Right
+        cv2.line(frame, tuple(pts[3]), tuple(pts[2]), (0, 255, 0), 2) # Bottom
+        cv2.line(frame, tuple(pts[2]), tuple(pts[0]), (0, 255, 0), 2) # Left
 
-                # Calculate real-world coordinates
-                x_cm = c[0] * ratio
-                y_cm = c[1] * ratio
+    cv2.imshow("Original Camera", frame)
 
-                # DRAWING THE BOXES ON THE ROI STREAM
-                cv2.rectangle(whiteboard_view, (b[0], b[1]), (b[2], b[3]), (0, 255, 0), 2)
+    if last_whiteboard_view is not None:
+        cv2.imshow("Corrected Whiteboard ROI", last_whiteboard_view)
 
-                # Display CM coordinates on top of the box
-                label = f"{x_cm:.1f}, {y_cm:.1f} cm"
-                cv2.putText(whiteboard_view, label, (b[0], b[1] - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+    key = cv2.waitKey(1) & 0xFF
+    if key != 255:
+        print(f"Key pressed: {key}")
 
-                print(f"Target at: {label}")
+    # Press SPACE or 's' to save the ROI image
+    if key in (32, ord('s')):
+        if last_whiteboard_view is None:
+            print("ROI not found; nothing to save.")
+        else:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"roi_{timestamp}_{image_index:04d}.jpg"
+            filepath = os.path.join(output_dir, filename)
+            cv2.imwrite(filepath, last_whiteboard_view)
+            image_index += 1
+            print(f"Saved: {filepath}")
 
-        cv2.imshow("Corrected Whiteboard ROI", whiteboard_view)
-
-    cv2.imshow("Original Camera Feed", frame)
-    if cv2.waitKey(1) & 0xFF == ord('q'): break
+    # Press 'q' to quit
+    if key == ord('q'):
+        break
 
 cap.release()
 cv2.destroyAllWindows()

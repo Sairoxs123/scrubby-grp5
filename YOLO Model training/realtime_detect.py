@@ -4,8 +4,8 @@ import time
 
 # --- Configuration ---
 # Update this path to your best trained model
-MODEL_PATH = r'C:\Users\Sai20\Desktop\Sai Teja\Scrubby\runs\detect\train5\weights\best.pt'
-CONFIDENCE_THRESHOLD = 0.4  # Minimum confidence to detect an object
+MODEL_PATH = r'C:\Users\Sai20\Desktop\Sai Teja\Scrubby\runs\detect\Scrubby\yolo26n_v1\weights\best.pt'
+CONFIDENCE_THRESHOLD = 0.5  # Minimum confidence to detect an object
 
 def main():
     # Load the trained YOLO model

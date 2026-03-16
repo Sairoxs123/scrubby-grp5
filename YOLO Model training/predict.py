@@ -4,11 +4,11 @@ import glob
 
 # Load the trained model
 # Note: Adjust the path 'runs/detect/train5/weights/best.pt' if your latest run is different
-model_path = r'C:\Users\Sai20\Desktop\Sai Teja\Scrubby\runs\detect\train5\weights\best.pt'
+model_path = r'C:\Users\Sai20\Desktop\Sai Teja\Scrubby\runs\detect\Scrubby\yolo26n_v1\weights\best.pt'
 model = YOLO(model_path)
 
 # Define path to test images
-test_images_path = r'Scrubby-1\test\images'
+test_images_path = r'Scrubby-2\test\images'
 
 # Run inference on the source
 results = model.predict(source=test_images_path, save=True, conf=0.5)

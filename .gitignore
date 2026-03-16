@@ -1,6 +1,6 @@
 venv
 runs
-Scrubby-1
+Scrubby-*
 *.pt
 captures
 .env
