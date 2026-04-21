@@ -1,8 +1,6 @@
 import cv2
 import numpy as np
 
-current_markers = {}
-
 # Load calibration
 def load_coefficients(path):
     cv_file = cv2.FileStorage(path, cv2.FILE_STORAGE_READ)
@@ -11,7 +9,7 @@ def load_coefficients(path):
     cv_file.release()
     return camera_matrix, dist_matrix
 
-mtx, dist = load_coefficients("../camera calibration/calibration_data.yml")
+mtx, dist = load_coefficients(r"C:\Users\Sai20\Desktop\Sai Teja\Scrubby\camera calibration\calibration_data.yml")
 
 # ArUco setup
 dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
@@ -22,21 +20,26 @@ detector = cv2.aruco.ArucoDetector(dictionary, parameters)
 
 cap = cv2.VideoCapture(0)
 
-# Marker size (5 cm)
+# CRITICAL: Measure the BLACK SQUARE ONLY with a ruler.
+# If it is 8.5cm, this MUST be 0.085.
 MARKER_SIZE = 0.10  # meters
 
-# Object points for pose estimation
+# FIX 2: Define origin (0,0,0) exactly at the center of the marker
+half_size = MARKER_SIZE / 2.0
 obj_points = np.array([
-    [0, 0, 0],
-    [MARKER_SIZE, 0, 0],
-    [MARKER_SIZE, MARKER_SIZE, 0],
-    [0, MARKER_SIZE, 0]
+    [-half_size, -half_size, 0], # Top-Left
+    [ half_size, -half_size, 0], # Top-Right
+    [ half_size,  half_size, 0], # Bottom-Right
+    [-half_size,  half_size, 0]  # Bottom-Left
 ], dtype=np.float32)
 
 while True:
     ret, frame = cap.read()
     if not ret:
         break
+
+    # FIX 3: Clear the dictionary EVERY frame so we don't mix old/new coordinates
+    current_markers = {}
 
     corners, ids, rejected = detector.detectMarkers(frame)
 
@@ -54,6 +57,7 @@ while True:
         required_ids = [0, 1, 2, 3]
         if all(mid in current_markers for mid in required_ids):
 
+            # These points are now the exact geometric centers of the markers
             p0 = current_markers[3]  # top right
             p1 = current_markers[2]  # bottom right
             p2 = current_markers[1]  # bottom left
@@ -69,11 +73,12 @@ while True:
             height_left = np.linalg.norm(p3 - p2)
             height = (height_right + height_left) / 2
 
-            print(f"Whiteboard Width : {width * 100:.2f} cm")
-            print(f"Whiteboard Height: {height * 100:.2f} cm")
+            # Note: This is the center-to-center distance.
+            # If the markers are inside the board, the true board is slightly larger.
+            print(f"Center-to-Center Width : {width * 100:.2f} cm")
+            print(f"Center-to-Center Height: {height * 100:.2f} cm")
             print("-" * 40)
 
-    cv2.aruco.drawDetectedMarkers(frame, rejected, borderColor=(255, 0, 255))
     cv2.imshow("Whiteboard Measurement", frame)
 
     if cv2.waitKey(1) & 0xFF == ord('q'):

@@ -3,6 +3,11 @@ import numpy as np
 import os
 from datetime import datetime
 
+CAMERA_WIDTH = 1280
+CAMERA_HEIGHT = 720
+OUTPUT_WIDTH = 1000
+OUTPUT_HEIGHT = 700
+
 def extract_whiteboard(frame):
     # 1. Load the ArUco dictionary (The image you uploaded uses 4x4 markers)
     aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
@@ -42,15 +47,11 @@ def extract_whiteboard(frame):
             ], dtype="float32")
 
             # 4. Define Destination Points (The flat 'whiteboard' view)
-            # We pick a fixed resolution for the output, e.g., 1000x700 pixels
-            output_width = 1000
-            output_height = 700
-
             dst_pts = np.array([
                 [0, 0],                         # Top-Left
-                [output_width, 0],              # Top-Right
-                [0, output_height],             # Bottom-Left
-                [output_width, output_height]   # Bottom-Right
+                [OUTPUT_WIDTH, 0],              # Top-Right
+                [0, OUTPUT_HEIGHT],             # Bottom-Left
+                [OUTPUT_WIDTH, OUTPUT_HEIGHT]   # Bottom-Right
             ], dtype="float32")
 
             # 5. Perform the Perspective Transform
@@ -58,7 +59,7 @@ def extract_whiteboard(frame):
             matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
 
             # Warp the image
-            warped_image = cv2.warpPerspective(frame, matrix, (output_width, output_height))
+            warped_image = cv2.warpPerspective(frame, matrix, (OUTPUT_WIDTH, OUTPUT_HEIGHT))
 
             return warped_image, src_pts
 
@@ -70,6 +71,8 @@ output_dir = os.path.join(os.path.dirname(__file__), "captures")
 os.makedirs(output_dir, exist_ok=True)
 image_index = 0
 cap = cv2.VideoCapture(0) # Open default webcam
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
 last_whiteboard_view = None
 
 while True:
