@@ -4,3 +4,4 @@ Scrubby-*
 *.pt
 captures
 .env
+*.pyc

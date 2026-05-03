@@ -2,7 +2,7 @@ from ultralytics import YOLO
 
 if __name__ == "__main__":
     # Load the trained model
-    model_path = r"C:\Users\Sai20\Desktop\Sai Teja\Scrubby\runs\detect\Scrubby\rtdetr-l_v1_optimized2\weights\best.pt"
+    model_path = r"C:\Users\Sai20\Desktop\Sai Teja\Scrubby\runs\detect\Scrubby\yolo11n_v2\weights\best.pt"
     model = YOLO(model_path)
 
     # Validate the model
@@ -28,7 +28,7 @@ Recall: 0.8589
 '''
 
 '''
-YOLO v11 Results:
+YOLO v11 v3 Results:
 
 Validation Results:
 mAP@50: 0.8229
